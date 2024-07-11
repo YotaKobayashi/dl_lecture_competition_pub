@@ -10,7 +10,12 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision import transforms
+import torchtext
+torchtext.disable_torchtext_deprecation_warning()
+from torchtext.data.utils import get_tokenizer
 
+# tokenizerの設定
+tokenizer = get_tokenizer("basic_english")
 
 def set_seed(seed):
     random.seed(seed)
@@ -69,6 +74,9 @@ class VQADataset(torch.utils.data.Dataset):
         self.df = pandas.read_json(df_path)  # 画像ファイルのパス，question, answerを持つDataFrame
         self.answer = answer
 
+        # tokenizerの設定
+        self.tokenizer = tokenizer
+
         # question / answerの辞書を作成
         self.question2idx = {}
         self.answer2idx = {}
@@ -78,7 +86,7 @@ class VQADataset(torch.utils.data.Dataset):
         # 質問文に含まれる単語を辞書に追加
         for question in self.df["question"]:
             question = process_text(question)
-            words = question.split(" ")
+            words = self.tokenizer(question)  # 分散表現にするためのtokenizerを利用
             for word in words:
                 if word not in self.question2idx:
                     self.question2idx[word] = len(self.question2idx)
@@ -131,7 +139,7 @@ class VQADataset(torch.utils.data.Dataset):
         image = Image.open(f"{self.image_dir}/{self.df['image'][idx]}")
         image = self.transform(image)
         question = np.zeros(len(self.idx2question) + 1)  # 未知語用の要素を追加
-        question_words = self.df["question"][idx].split(" ")
+        question_words = self.tokenizer(self.df["question"][idx])  # 分散表現に変換
         for word in question_words:
             try:
                 question[self.question2idx[word]] = 1  # one-hot表現に変換
@@ -171,7 +179,7 @@ def VQA_criterion(batch_pred: torch.Tensor, batch_answers: torch.Tensor):
     return total_acc / len(batch_pred)
 
 
-# 3. モデルのの実装
+# 3. モデルの実装
 # ResNetを利用できるようにしておく
 class BasicBlock(nn.Module):
     expansion = 1
@@ -368,8 +376,8 @@ def main():
         transforms.Resize((224, 224)),
         transforms.ToTensor()
     ])
-    train_dataset = VQADataset(df_path="./data/train.json", image_dir="./data/train", transform=transform)
-    test_dataset = VQADataset(df_path="./data/valid.json", image_dir="./data/valid", transform=transform, answer=False)
+    train_dataset = VQADataset(df_path="/content/data/train.json", image_dir="/content/data/train", transform=transform)
+    test_dataset = VQADataset(df_path="/content/data/valid.json", image_dir="/content/data/valid", transform=transform, answer=False)
     test_dataset.update_dict(train_dataset)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True)
